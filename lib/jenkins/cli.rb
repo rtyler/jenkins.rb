@@ -7,6 +7,7 @@ require 'jenkins/remote'
 module Jenkins
   class CLI < Thor
     include CLI::Formatting
+    include Term::ANSIColor
 
     map "-v" => :version, "--version" => :version, "-h" => :help, "--help" => :help
 
@@ -135,7 +136,60 @@ module Jenkins
           require "yaml"
           puts job.parsed_response.to_yaml
         else
-          error "Select an output format: --json, --xml, --yaml, --hash"
+          print_name = bold(job['name'])
+          last_completed_build = job['lastCompletedBuild']
+
+          if job['color'] == 'blue'
+            print_name = blue(print_name)
+          elsif job['color'] == 'yellow'
+            print_name = yellow(print_name)
+          else
+            print_name = red(print_name)
+          end
+
+          disabled = ''
+          unless job['buildable']
+            disabled = "[#{yellow('disabled')}]"
+          end
+
+          puts
+          puts "#{print_name} #{disabled}\t\t#{underscore(job['url'])}"
+          puts
+
+          unless last_completed_build.nil?
+            puts "Last completed build: #{bold(last_completed_build['number'].to_s)}\t#{underscore(last_completed_build['url'])}"
+            build = Jenkins::Api.build_details(name, last_completed_build['number'])
+
+            puts "\tBuilt on: #{build['builtOn']}"
+
+            build['actions'].each do |action|
+              if action and action['urlName'] == 'testReport'
+                puts "\tTest Report:"
+                puts "\t\tTotal:   #{green(action['totalCount'].to_s)}"
+                puts "\t\tSkipped: #{yellow(action['skipCount'].to_s)}"
+                puts "\t\tFailed:  #{bold(red(action['failCount'].to_s))}"
+                puts
+              end
+
+              if action and action['causes']
+                action['causes'].each do |cause|
+                  puts "\t#{cause['shortDescription']}"
+                end
+                puts
+              end
+            end
+
+            unless build['changeSet'].nil? and build['changeSet']['items'].nil?
+              unless build['changeSet']['items'].empty?
+                puts "\tChanges:"
+                build['changeSet']['items'].each do |change|
+                  puts "\t\t#{bold(change['author']['fullName'])}\t\t#{change['comment']}"
+                end
+              end
+            end
+
+          end
+
         end
       else
         error "Cannot find project '#{name}'."
